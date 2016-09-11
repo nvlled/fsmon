@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strconv"
 	"time"
 )
 
@@ -15,11 +16,19 @@ var showHelp bool
 var abortOnError bool
 var every int
 
+var eventFlags string
+
 func init() {
 	flag.StringVar(&dirToWatch, "dir", ".", "The directory to monitor")
 	flag.BoolVar(&showHelp, "help", false, "Show help file")
 	flag.BoolVar(&showHelp, "abort", false, "Abort and stop monitoring when command fails")
 	flag.IntVar(&every, "every", 1, "Run the command at most every given seconds")
+
+	flag.StringVar(&eventFlags, "events", "0011",
+		"Events to monitor: RENAME|DELETE|MODIFY|CREATE\n"+
+			"\tProvide a bitstring with the indicated order\n"+
+			"\tFor example, to monitor modify MODIFY events only, then set -events=0010\n"+
+			"\tTo, monitor RENAME and DELETE events only, then set -events=1100\n\t")
 }
 
 func showUsage() {
@@ -40,6 +49,11 @@ func runCommand(args []string) error {
 	return err
 }
 
+func parseBitstring(s string) (int, error) {
+	n, err := strconv.ParseInt(s, 2, 8)
+	return int(n), err
+}
+
 func main() {
 	flag.Parse()
 
@@ -55,7 +69,11 @@ func main() {
 		return
 	}
 
-	runCommand(args)
+	evflags, err := parseBitstring(eventFlags)
+	if err != nil {
+		fmt.Printf("error: invalid events, using 0011")
+		evflags, _ = parseBitstring("0011")
+	}
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -85,8 +103,8 @@ func main() {
 		for {
 			select {
 			case event := <-watcher.Events:
-				log.Println("event:", event)
-				if event.Op&fsnotify.Write == fsnotify.Write {
+				if event.Op&fsnotify.Op(evflags) > 0 {
+					log.Println("event:", event)
 					doRun = true
 				}
 			case err := <-watcher.Errors:
