@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"time"
@@ -22,6 +23,8 @@ var eventFlags string
 var includePattern string
 var excludePattern string
 
+var recursive bool
+
 func init() {
 	flag.StringVar(&dirToWatch, "dir", ".", "The directory to monitor")
 	flag.BoolVar(&showHelp, "help", false, "Show help file")
@@ -36,6 +39,8 @@ func init() {
 
 	flag.StringVar(&includePattern, "include", ".*", "A regular expression of the files that will be monitored")
 	flag.StringVar(&excludePattern, "exclude", "[^\\s\\S]", "A regular expression of the files that will be NOT monitored")
+
+	flag.BoolVar(&recursive, "recursive", true, "Monitor including subdirectories")
 }
 
 func showUsage() {
@@ -59,6 +64,15 @@ func runCommand(args []string) error {
 func parseBitstring(s string) (int, error) {
 	n, err := strconv.ParseInt(s, 2, 8)
 	return int(n), err
+}
+
+func recursiveWatch(w *fsnotify.Watcher, dir string) {
+	filepath.Walk(dir, func(path string, info os.FileInfo, _ error) error {
+		if info.IsDir() {
+			w.Add(path)
+		}
+		return nil
+	})
 }
 
 func main() {
@@ -85,6 +99,8 @@ func main() {
 		fmt.Printf("error: invalid events, using 0011")
 		evflags, _ = parseBitstring("0011")
 	}
+
+	// TODO: check if directory exists
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -127,9 +143,11 @@ func main() {
 		}
 	}()
 
-	err = watcher.Add(dirToWatch)
-	if err != nil {
-		log.Fatal(err)
+	if recursive {
+		recursiveWatch(watcher, dirToWatch)
+	} else {
+		watcher.Add(dirToWatch)
 	}
+
 	<-done
 }
