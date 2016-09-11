@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"time"
 )
@@ -17,6 +18,9 @@ var abortOnError bool
 var every int
 
 var eventFlags string
+
+var includePattern string
+var excludePattern string
 
 func init() {
 	flag.StringVar(&dirToWatch, "dir", ".", "The directory to monitor")
@@ -29,6 +33,9 @@ func init() {
 			"\tProvide a bitstring with the indicated order\n"+
 			"\tFor example, to monitor modify MODIFY events only, then set -events=0010\n"+
 			"\tTo, monitor RENAME and DELETE events only, then set -events=1100\n\t")
+
+	flag.StringVar(&includePattern, "include", ".*", "A regular expression of the files that will be monitored")
+	flag.StringVar(&excludePattern, "exclude", "[^\\s\\S]", "A regular expression of the files that will be NOT monitored")
 }
 
 func showUsage() {
@@ -63,11 +70,15 @@ func main() {
 		return
 	}
 
+	// Check if command is a valid executable file
 	_, err := exec.LookPath(args[0])
 	if err != nil {
 		fmt.Printf("command not found: %s\n", args[0])
 		return
 	}
+
+	includeRx := regexp.MustCompile(includePattern)
+	excludeRx := regexp.MustCompile(excludePattern)
 
 	evflags, err := parseBitstring(eventFlags)
 	if err != nil {
@@ -103,7 +114,10 @@ func main() {
 		for {
 			select {
 			case event := <-watcher.Events:
-				if event.Op&fsnotify.Op(evflags) > 0 {
+				if event.Op&fsnotify.Op(evflags) > 0 &&
+					includeRx.MatchString(event.Name) &&
+					!excludeRx.MatchString(event.Name) {
+
 					log.Println("event:", event)
 					doRun = true
 				}
